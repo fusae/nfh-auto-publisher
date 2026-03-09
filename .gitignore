@@ -1,0 +1,8 @@
+node_modules/
+nfh.config.json
+.runtime/
+out/
+drafts/*
+!drafts/.gitkeep
+*.log
+.DS_Store

@@ -1,0 +1,15 @@
+{
+  "username": "your-account@example.com",
+  "password": "your-password",
+  "deepseekApiKey": "",
+  "deepseekPrompt": "改成新闻稿形式",
+  "loginUrl": "https://nfh.nfapp.southcn.com/backend/nfh-publishing-system/#/login",
+  "publishUrl": "https://nfh.nfapp.southcn.com/backend/nfh-publishing-system/#/content/publish",
+  "previewUrl": "https://nfh.nfapp.southcn.com/backend/nfh-publishing-system/#/content/publish",
+  "runtimeDir": ".runtime",
+  "headless": false,
+  "keepOpen": false,
+  "navigationTimeoutMs": 30000,
+  "actionTimeoutMs": 15000,
+  "loginTimeoutMs": 180000
+}

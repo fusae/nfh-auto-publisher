@@ -1,0 +1,7 @@
+interface:
+  display_name: "NFH Auto Publisher"
+  short_description: "Publish SouthCN drafts from DOCX in any workspace"
+  default_prompt: "Use $nfh-auto-publisher to publish this .docx article to 南方号 from the current workspace."
+
+policy:
+  allow_implicit_invocation: true

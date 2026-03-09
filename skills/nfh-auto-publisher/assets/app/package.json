@@ -1,0 +1,23 @@
+{
+  "name": "nfh-auto-publisher",
+  "version": "1.0.0",
+  "description": "南方号自动发文工具",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "nfh": "./src/cli.js"
+  },
+  "scripts": {
+    "nfh": "node src/cli.js",
+    "login": "node src/cli.js login",
+    "preview": "node src/cli.js preview",
+    "publish": "node src/cli.js publish",
+    "publish:assist": "node src/cli.js publish --mode assist"
+  },
+  "dependencies": {
+    "mammoth": "^1.11.0",
+    "playwright": "^1.52.0",
+    "sharp": "^0.34.5",
+    "tesseract.js": "^7.0.0"
+  }
+}
