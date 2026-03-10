@@ -28,7 +28,7 @@ function printHelp() {
 
 用法:
   node src/cli.js login
-  node src/cli.js publish <docx-path> [--mode auto|assist|manual] [--keep-open]
+  node src/cli.js publish <docx-path> [--mode auto|assist|manual] [--deepseek|--no-deepseek] [--keep-open]
   node src/cli.js preview [--keep-open]
 
 环境变量:
@@ -47,7 +47,8 @@ function parseArgs(argv) {
   const command = args.shift();
   const options = {
     keepOpen: false,
-    mode: 'auto'
+    mode: 'auto',
+    deepseekEnabled: undefined
   };
   const positionals = [];
 
@@ -65,6 +66,16 @@ function parseArgs(argv) {
 
     if (current?.startsWith('--mode=')) {
       options.mode = current.split('=')[1] || options.mode;
+      continue;
+    }
+
+    if (current === '--deepseek') {
+      options.deepseekEnabled = true;
+      continue;
+    }
+
+    if (current === '--no-deepseek') {
+      options.deepseekEnabled = false;
       continue;
     }
 
@@ -210,7 +221,11 @@ export async function runCli(argv = process.argv.slice(2)) {
     return;
   }
 
-  const config = loadConfig();
+  const config = loadConfig(
+    options.deepseekEnabled == null
+      ? {}
+      : { deepseekEnabled: options.deepseekEnabled }
+  );
 
   if (command === 'login') {
     await runLoginCommand(config, options);

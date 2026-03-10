@@ -12,6 +12,26 @@ if [[ ! -f "${workspace_root}/nfh.config.json" ]]; then
 fi
 
 draft_path="${1:-}"
+extra_args=()
+
+if [[ -n "${draft_path}" && "${draft_path}" == --* ]]; then
+  extra_args+=("${draft_path}")
+  draft_path=""
+fi
+
+shift_count=0
+if [[ -n "${1:-}" ]]; then
+  shift_count=1
+fi
+
+if (( shift_count > 0 )); then
+  shift
+fi
+
+while (( $# > 0 )); do
+  extra_args+=("$1")
+  shift
+done
 
 if [[ -z "${draft_path}" ]]; then
   draft_path="$(
@@ -42,5 +62,5 @@ fi
   cd "${workspace_root}"
   NFH_CONFIG_FILE="${workspace_root}/nfh.config.json" \
   NFH_NAVIGATION_TIMEOUT_MS="${NFH_NAVIGATION_TIMEOUT_MS:-120000}" \
-  node "${app_dir}/src/cli.js" publish "${draft_path}"
+  node "${app_dir}/src/cli.js" publish "${draft_path}" "${extra_args[@]}"
 )

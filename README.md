@@ -60,6 +60,12 @@ npm run login
 npm run publish -- "/path/to/article.docx"
 ```
 
+跳过 DeepSeek，直接按原稿发布：
+
+```bash
+npm run publish -- "/path/to/article.docx" --no-deepseek
+```
+
 半自动模式：
 
 ```bash
@@ -70,6 +76,7 @@ npm run publish:assist -- "/path/to/article.docx"
 
 ```bash
 node src/cli.js publish "/path/to/article.docx" --mode auto
+node src/cli.js publish "/path/to/article.docx" --no-deepseek
 node src/cli.js publish "/path/to/article.docx" --mode assist
 node src/cli.js preview
 ```
