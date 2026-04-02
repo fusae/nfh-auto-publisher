@@ -176,12 +176,17 @@ async function runPublishCommand(config, docPath, options) {
       console.log(`当前表单字段: ${JSON.stringify(currentFormValues.values)}`);
     }
 
-    const saveRecords = await saveDraft(session.page);
-    if (saveRecords.length > 0) {
-      console.log('保存请求记录:');
-      for (const record of saveRecords) {
-        console.log(JSON.stringify(record));
-      }
+    const saveRecords = await saveDraft(session.page, workingArticle.title);
+    const latestSaveResult = [...saveRecords]
+      .reverse()
+      .find(record =>
+        /\/post\/savePost/.test(record.url || '') &&
+        (record.type === 'response' || record.type === 'manual-retry-response')
+      );
+    if (latestSaveResult) {
+      console.log(`保存结果: ${latestSaveResult.status} ${latestSaveResult.body || ''}`);
+    } else if (saveRecords.length > 0) {
+      console.log(`已捕获保存相关记录 ${saveRecords.length} 条，但未定位到最终保存响应。`);
     } else {
       console.log('本次未捕获到保存相关请求，可能仍被前端校验拦截。');
     }

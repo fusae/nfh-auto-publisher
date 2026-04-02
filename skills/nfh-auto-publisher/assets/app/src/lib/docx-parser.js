@@ -1,7 +1,12 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import mammoth from 'mammoth';
 import sharp from 'sharp';
+
+const execFileAsync = promisify(execFile);
 
 function extractTitle(html) {
   const titleMatch =
@@ -98,42 +103,84 @@ function buildBlocks(contentHtml, images) {
   return blocks;
 }
 
+async function resolveWordSource(docPath, config) {
+  const extension = path.extname(docPath).toLowerCase();
+  if (extension === '.docx') {
+    return { workingPath: docPath, cleanup: async () => {} };
+  }
+
+  if (extension !== '.doc') {
+    throw new Error(`仅支持 .docx 或 .doc 文件: ${docPath}`);
+  }
+
+  const tempDir = fs.mkdtempSync(path.join(config.runtimeDir || os.tmpdir(), 'doc-convert-'));
+  const outputPath = path.join(tempDir, `${path.basename(docPath, extension)}.docx`);
+
+  try {
+    await execFileAsync('/usr/bin/textutil', ['-convert', 'docx', docPath, '-output', outputPath]);
+  } catch (error) {
+    throw new Error(`.doc 转 .docx 失败: ${error.message}`);
+  }
+
+  if (!fs.existsSync(outputPath)) {
+    throw new Error(`.doc 转换后未生成 docx 文件: ${outputPath}`);
+  }
+
+  return {
+    workingPath: outputPath,
+    cleanup: async () => {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  };
+}
+
 export async function parseWordDocument(docPath, config) {
   const resolvedPath = path.resolve(docPath);
   if (!fs.existsSync(resolvedPath)) {
     throw new Error(`文档不存在: ${resolvedPath}`);
   }
 
-  const images = [];
-  const result = await mammoth.convertToHtml(
-    { path: resolvedPath },
-    {
-      convertImage: mammoth.images.imgElement(async image => {
-        const buffer = await image.read();
-        const imageIndex = images.length;
-        const imagePath = path.join(config.imageOutputDir, `image-${imageIndex}.png`);
-        await sharp(buffer).png().toFile(imagePath);
-        images.push(imagePath);
-        return { src: `###IMAGE_PLACEHOLDER_${imageIndex}###` };
-      })
-    }
-  );
+  const { workingPath, cleanup } = await resolveWordSource(resolvedPath, config);
 
-  const { title, matchedHtml } = extractTitle(result.value);
-  const contentHtml = normalizeHtml(matchedHtml ? result.value.replace(matchedHtml, '') : result.value);
-  const manualHtml = contentHtml.replace(
-    /<img[^>]*src="###IMAGE_PLACEHOLDER_(\d+)###"[^>]*>/gi,
-    (_fullMatch, imageIndex) => `<p><strong>[图片${Number(imageIndex) + 1}]</strong></p>`
-  );
+  try {
+    const images = [];
+    const result = await mammoth.convertToHtml(
+      { path: workingPath },
+      {
+        convertImage: mammoth.images.imgElement(async image => {
+          const buffer = await image.read();
+          const imageIndex = images.length;
+          const imagePath = path.join(config.imageOutputDir, `image-${imageIndex}.png`);
+          await sharp(buffer).png().toFile(imagePath);
+          images.push(imagePath);
+          return { src: `###IMAGE_PLACEHOLDER_${imageIndex}###` };
+        })
+      }
+    );
 
-  return {
-    sourcePath: resolvedPath,
-    title,
-    contentHtml,
-    manualHtml,
-    images,
-    blocks: buildBlocks(contentHtml, images)
-  };
+    const { title, matchedHtml } = extractTitle(result.value);
+    const fallbackTitle = path.basename(resolvedPath, path.extname(resolvedPath)).trim();
+    const resolvedTitle =
+      title && title !== '未命名文章'
+        ? title
+        : (fallbackTitle || '未命名文章');
+    const contentHtml = normalizeHtml(matchedHtml ? result.value.replace(matchedHtml, '') : result.value);
+    const manualHtml = contentHtml.replace(
+      /<img[^>]*src="###IMAGE_PLACEHOLDER_(\d+)###"[^>]*>/gi,
+      (_fullMatch, imageIndex) => `<p><strong>[图片${Number(imageIndex) + 1}]</strong></p>`
+    );
+
+    return {
+      sourcePath: resolvedPath,
+      title: resolvedTitle,
+      contentHtml,
+      manualHtml,
+      images,
+      blocks: buildBlocks(contentHtml, images)
+    };
+  } finally {
+    await cleanup();
+  }
 }
 
 export function buildArticleRewriteSource(article) {

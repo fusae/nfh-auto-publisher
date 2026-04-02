@@ -35,6 +35,19 @@ const LOGIN_BUTTON_SELECTORS = [
   'button:has-text("登 录")',
   '.ant-btn-primary'
 ];
+const CONTENT_MANAGEMENT_SELECTORS = [
+  'span:has-text("内容管理")',
+  'div:has-text("内容管理")',
+  'li:has-text("内容管理")'
+];
+const PUBLISH_ENTRY_SELECTORS = [
+  'span:has-text("发布文章")',
+  'div:has-text("发布文章")',
+  'li:has-text("发布文章")',
+  'a:has-text("发布文章")',
+  'button:has-text("发布文章")',
+  'div:has-text("发布")'
+];
 
 function logStep(step) {
   console.log(`\n[${step}]`);
@@ -250,6 +263,29 @@ async function waitForEditor(page) {
   );
 }
 
+async function navigateToPublishEditor(page, config) {
+  await page.goto(config.publishUrl, { waitUntil: 'domcontentloaded' });
+  if (await isPublishPageReady(page)) {
+    return true;
+  }
+
+  if (page.url().includes('/login')) {
+    return false;
+  }
+
+  await clickFirstVisible(page, CONTENT_MANAGEMENT_SELECTORS).catch(() => false);
+  await page.waitForTimeout(500);
+
+  const clickedPublishEntry = await clickFirstVisible(page, PUBLISH_ENTRY_SELECTORS);
+  if (!clickedPublishEntry) {
+    return false;
+  }
+
+  return await waitForEditor(page)
+    .then(() => true)
+    .catch(() => false);
+}
+
 async function withEditor(page, operation, payload) {
   return page.evaluate(
     ({ op, data }) => {
@@ -362,9 +398,7 @@ export async function ensureLoggedIn(session, config) {
   const { page, context } = session;
 
   logStep('登录检查');
-  await page.goto(config.publishUrl, { waitUntil: 'domcontentloaded' });
-
-  if (await isPublishPageReady(page)) {
+  if (await navigateToPublishEditor(page, config)) {
     console.log('已使用现有登录态进入发文页面。');
     return;
   }
@@ -394,8 +428,7 @@ export async function ensureLoggedIn(session, config) {
   await context.storageState({ path: config.stateFile });
   console.log(`登录状态已保存: ${config.stateFile}`);
 
-  await page.goto(config.publishUrl, { waitUntil: 'domcontentloaded' });
-  if (!(await isPublishPageReady(page))) {
+  if (!(await navigateToPublishEditor(page, config))) {
     throw new Error('登录后未能进入发文页面，请检查后台地址或页面结构。');
   }
 }
@@ -403,8 +436,9 @@ export async function ensureLoggedIn(session, config) {
 export async function openPublishPage(session, config) {
   const { page } = session;
   logStep('打开发布页');
-  await page.goto(config.publishUrl, { waitUntil: 'domcontentloaded' });
-  await waitForEditor(page);
+  if (!(await navigateToPublishEditor(page, config))) {
+    throw new Error('未能打开发文页面，请检查后台地址或页面结构。');
+  }
 }
 
 export async function fillTitle(page, title) {

@@ -35,6 +35,19 @@ const LOGIN_BUTTON_SELECTORS = [
   'button:has-text("登 录")',
   '.ant-btn-primary'
 ];
+const CONTENT_MANAGEMENT_SELECTORS = [
+  'span:has-text("内容管理")',
+  'div:has-text("内容管理")',
+  'li:has-text("内容管理")'
+];
+const PUBLISH_ENTRY_SELECTORS = [
+  'span:has-text("发布文章")',
+  'div:has-text("发布文章")',
+  'li:has-text("发布文章")',
+  'a:has-text("发布文章")',
+  'button:has-text("发布文章")',
+  'div:has-text("发布")'
+];
 
 function logStep(step) {
   console.log(`\n[${step}]`);
@@ -250,6 +263,29 @@ async function waitForEditor(page) {
   );
 }
 
+async function navigateToPublishEditor(page, config) {
+  await page.goto(config.publishUrl, { waitUntil: 'domcontentloaded' });
+  if (await isPublishPageReady(page)) {
+    return true;
+  }
+
+  if (page.url().includes('/login')) {
+    return false;
+  }
+
+  await clickFirstVisible(page, CONTENT_MANAGEMENT_SELECTORS).catch(() => false);
+  await page.waitForTimeout(500);
+
+  const clickedPublishEntry = await clickFirstVisible(page, PUBLISH_ENTRY_SELECTORS);
+  if (!clickedPublishEntry) {
+    return false;
+  }
+
+  return await waitForEditor(page)
+    .then(() => true)
+    .catch(() => false);
+}
+
 async function withEditor(page, operation, payload) {
   return page.evaluate(
     ({ op, data }) => {
@@ -362,9 +398,7 @@ export async function ensureLoggedIn(session, config) {
   const { page, context } = session;
 
   logStep('登录检查');
-  await page.goto(config.publishUrl, { waitUntil: 'domcontentloaded' });
-
-  if (await isPublishPageReady(page)) {
+  if (await navigateToPublishEditor(page, config)) {
     console.log('已使用现有登录态进入发文页面。');
     return;
   }
@@ -394,8 +428,7 @@ export async function ensureLoggedIn(session, config) {
   await context.storageState({ path: config.stateFile });
   console.log(`登录状态已保存: ${config.stateFile}`);
 
-  await page.goto(config.publishUrl, { waitUntil: 'domcontentloaded' });
-  if (!(await isPublishPageReady(page))) {
+  if (!(await navigateToPublishEditor(page, config))) {
     throw new Error('登录后未能进入发文页面，请检查后台地址或页面结构。');
   }
 }
@@ -403,8 +436,9 @@ export async function ensureLoggedIn(session, config) {
 export async function openPublishPage(session, config) {
   const { page } = session;
   logStep('打开发布页');
-  await page.goto(config.publishUrl, { waitUntil: 'domcontentloaded' });
-  await waitForEditor(page);
+  if (!(await navigateToPublishEditor(page, config))) {
+    throw new Error('未能打开发文页面，请检查后台地址或页面结构。');
+  }
 }
 
 export async function fillTitle(page, title) {
@@ -488,16 +522,39 @@ export async function insertImageBlock(page, imageUrl) {
 }
 
 export async function uploadImage(page, imagePath) {
+  console.log(`准备上传图片: ${path.basename(imagePath)}`);
   const stats = fs.statSync(imagePath);
   const fileSizeMb = stats.size / (1024 * 1024);
-  if (fileSizeMb > 5) {
-    throw new Error(`图片超过 5MB: ${path.basename(imagePath)} (${fileSizeMb.toFixed(2)}MB)`);
+
+  const originalBuffer = fs.readFileSync(imagePath);
+  const originalMetadata = await sharp(originalBuffer).metadata();
+  let uploadBuffer = originalBuffer;
+  let uploadFilename = path.basename(imagePath);
+  let uploadMimeType = 'image/png';
+
+  if (fileSizeMb > 1) {
+    uploadBuffer = await sharp(originalBuffer)
+      .flatten({ background: '#ffffff' })
+      .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 82, mozjpeg: true })
+      .toBuffer();
+    uploadFilename = `${path.basename(imagePath, path.extname(imagePath))}.jpg`;
+    uploadMimeType = 'image/jpeg';
+    console.log(
+      `已压缩图片用于上传: ${uploadFilename} (${(uploadBuffer.length / 1024 / 1024).toFixed(2)}MB)`
+    );
   }
 
-  const imageBuffer = fs.readFileSync(imagePath);
-  const metadata = await sharp(imageBuffer).metadata();
-  const width = metadata.width || 1280;
-  const height = metadata.height || 720;
+  const uploadSizeMb = uploadBuffer.length / (1024 * 1024);
+  if (uploadSizeMb > 5) {
+    throw new Error(
+      `图片压缩后仍超过 5MB: ${uploadFilename} (${uploadSizeMb.toFixed(2)}MB, 原始 ${fileSizeMb.toFixed(2)}MB)`
+    );
+  }
+
+  const metadata = await sharp(uploadBuffer).metadata();
+  const width = metadata.width || originalMetadata.width || 1280;
+  const height = metadata.height || originalMetadata.height || 720;
 
   const authToken = await page.evaluate(() => {
     const directToken = localStorage.getItem('token') || sessionStorage.getItem('token');
@@ -522,17 +579,19 @@ export async function uploadImage(page, imagePath) {
   }
 
   const uploadResult = await page.evaluate(
-    async ({ imageBase64, width: imageWidth, height: imageHeight, token }) => {
+    async ({ imageBase64, width: imageWidth, height: imageHeight, token, mimeType, filename }) => {
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort('upload-timeout'), 90000);
         const binary = atob(imageBase64);
         const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i += 1) {
           bytes[i] = binary.charCodeAt(i);
         }
 
-        const blob = new Blob([bytes], { type: 'image/png' });
+        const blob = new Blob([bytes], { type: mimeType });
         const formData = new FormData();
-        formData.append('file', blob, 'image.png');
+        formData.append('file', blob, filename);
         formData.append('width', String(imageWidth));
         formData.append('height', String(imageHeight));
         formData.append('collection', '-1');
@@ -542,8 +601,10 @@ export async function uploadImage(page, imagePath) {
           headers: {
             authorization: token
           },
-          body: formData
+          body: formData,
+          signal: controller.signal
         });
+        clearTimeout(timeoutId);
 
         const data = await response.json().catch(() => null);
         if (!response.ok) {
@@ -556,19 +617,35 @@ export async function uploadImage(page, imagePath) {
 
         return { ok: true, data };
       } catch (error) {
-        return { ok: false, error: error.message };
+        return {
+          ok: false,
+          error: error?.message || '',
+          errorName: error?.name || '',
+          errorString: String(error)
+        };
       }
     },
     {
-      imageBase64: imageBuffer.toString('base64'),
+      imageBase64: uploadBuffer.toString('base64'),
       width,
       height,
-      token: authToken
+      token: authToken,
+      mimeType: uploadMimeType,
+      filename: uploadFilename
     }
   );
 
+  if (!uploadResult) {
+    throw new Error('图片上传未返回结果');
+  }
+
   if (!uploadResult.ok) {
-    throw new Error(uploadResult.error || '图片上传失败');
+    const detailParts = [];
+    if (uploadResult.errorName) detailParts.push(`name=${uploadResult.errorName}`);
+    if (uploadResult.errorString) detailParts.push(`raw=${uploadResult.errorString}`);
+    if (uploadResult.data) detailParts.push(`data=${JSON.stringify(uploadResult.data)}`);
+    const detail = detailParts.length > 0 ? ` (${detailParts.join(', ')})` : '';
+    throw new Error((uploadResult.error || '图片上传失败') + detail);
   }
 
   const imageUrl =
@@ -582,7 +659,7 @@ export async function uploadImage(page, imagePath) {
     null;
 
   if (!imageUrl) {
-    throw new Error('上传成功但未返回图片 URL');
+    throw new Error(`上传成功但未返回图片 URL: ${JSON.stringify(uploadResult.data)}`);
   }
 
   const imageListResult = await page.evaluate(async ({ token, imageId: materialId }) => {
@@ -616,14 +693,17 @@ export async function publishArticleBlocks(page, article) {
   await setEditorContent(page, '');
   const imageEntries = [];
 
-  for (const block of article.blocks) {
+  for (const [index, block] of article.blocks.entries()) {
+    console.log(`处理正文块 ${index + 1}/${article.blocks.length}: ${block.type}`);
     if (block.type === 'html') {
       await insertHtmlBlock(page, block.html);
+      console.log(`已写入文本块 ${index + 1}/${article.blocks.length}`);
       continue;
     }
 
     if (block.type === 'image') {
       const uploadedImage = await uploadImage(page, block.localPath);
+      console.log(`图片上传完成: ${block.imageIndex + 1}/${article.images.length}`);
       await insertImageBlock(page, uploadedImage.renderUrl);
       imageEntries.push(uploadedImage);
       console.log(`已插入图片 ${block.imageIndex + 1}/${article.images.length}`);
@@ -1123,7 +1203,81 @@ export async function setCoverFromBody(page) {
   }
 }
 
-export async function saveDraft(page) {
+async function getAuthToken(page) {
+  return page.evaluate(() => {
+    const directToken = localStorage.getItem('token') || sessionStorage.getItem('token');
+    if (directToken) {
+      return directToken;
+    }
+
+    const appState = localStorage.getItem('nfhPublishingSystem');
+    if (!appState) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(appState);
+      return parsed?.auth || parsed?.accountInfo?.authorization || null;
+    } catch {
+      return null;
+    }
+  });
+}
+
+async function resendSaveRequestWithTitle(page, title, records) {
+  const latestRequest = [...records]
+    .reverse()
+    .find(item => item.type === 'request' && /\/post\/savePost/.test(item.url));
+
+  if (!latestRequest?.postData) {
+    return null;
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(latestRequest.postData);
+  } catch {
+    return null;
+  }
+
+  const authToken = await getAuthToken(page);
+  return page.evaluate(
+    async ({ token, body }) => {
+      try {
+        const response = await fetch('https://wemedia.nfnews.com/post/savePost', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json;charset=UTF-8',
+            ...(token ? { authorization: token } : {})
+          },
+          credentials: 'include',
+          body: JSON.stringify(body)
+        });
+
+        return {
+          ok: response.ok,
+          status: response.status,
+          body: await response.text()
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          status: 0,
+          body: error?.message || String(error)
+        };
+      }
+    },
+    {
+      token: authToken,
+      body: {
+        ...payload,
+        title
+      }
+    }
+  );
+}
+
+export async function saveDraft(page, title = '') {
   logStep('保存草稿');
   const capture = buildRequestCapture();
   page.on('request', capture.onRequest);
@@ -1141,6 +1295,24 @@ export async function saveDraft(page) {
     }
 
     await page.waitForTimeout(4000);
+
+    const latestResponse = [...capture.records]
+      .reverse()
+      .find(item => item.type === 'response' && /\/post\/savePost/.test(item.url));
+
+    if (latestResponse?.body?.includes('标题不能为空') && title) {
+      console.log(`检测到标题缺失，补发带标题的保存请求: ${title}`);
+      const retryResult = await resendSaveRequestWithTitle(page, title, capture.records);
+      if (retryResult) {
+        capture.records.push({
+          type: 'manual-retry-response',
+          status: retryResult.status,
+          url: 'https://wemedia.nfnews.com/post/savePost',
+          body: retryResult.body
+        });
+      }
+    }
+
     return capture.records;
   } finally {
     page.off('request', capture.onRequest);

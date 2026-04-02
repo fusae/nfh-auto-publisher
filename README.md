@@ -1,6 +1,6 @@
 # 南方号自动发文工具
 
-把 `.docx` 文章解析成标题、正文和图片，再通过 Playwright 写入南方号后台。
+把 `.docx` / `.doc` 文章解析成标题、正文和图片，再通过 Playwright 写入南方号后台。
 
 ## 当前阶段
 
@@ -59,6 +59,8 @@ npm run login
 ```bash
 npm run publish -- "/path/to/article.docx"
 ```
+
+`.doc` 也支持，会先自动转换成 `.docx` 再继续发布。
 
 跳过 DeepSeek，直接按原稿发布：
 
