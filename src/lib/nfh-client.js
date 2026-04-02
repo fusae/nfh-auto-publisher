@@ -1,7 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import Tesseract from 'tesseract.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CAPTCHA_OCR_SCRIPT = path.join(__dirname, 'captcha_ocr.py');
 
 const ACCOUNT_TAB_TEXTS = ['账号密码登录', '取号密码登录', '密码登录'];
 const ACCOUNT_SELECTORS = [
@@ -97,6 +102,19 @@ async function recognizeCaptcha(imagePaths) {
   return candidates[0] || '';
 }
 
+function recognizeWithDdddocr(imagePath) {
+  try {
+    const result = execFileSync('python3', [CAPTCHA_OCR_SCRIPT, imagePath], {
+      encoding: 'utf-8',
+      timeout: 15000,
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    return result.trim();
+  } catch {
+    return '';
+  }
+}
+
 async function clickFirstVisible(page, selectors) {
   for (const selector of selectors) {
     try {
@@ -183,8 +201,17 @@ async function solveCaptchaAndLogin(page, config) {
 
     await captchaInput.fill('');
     await captchaImage.screenshot({ path: captchaImagePath });
-    const imagePaths = await preprocessCaptchaVariants(captchaImagePath, config.runtimeDir);
-    const captchaText = await recognizeCaptcha(imagePaths);
+
+    let captchaText = recognizeWithDdddocr(captchaImagePath);
+    if (captchaText.length >= 4) {
+      console.log(`ddddocr 识别结果: ${captchaText}`);
+    } else {
+      if (captchaText) {
+        console.log(`ddddocr 结果太短 (${captchaText})，回退 Tesseract。`);
+      }
+      const imagePaths = await preprocessCaptchaVariants(captchaImagePath, config.runtimeDir);
+      captchaText = await recognizeCaptcha(imagePaths);
+    }
 
     if (captchaText.length < 4) {
       console.log(`验证码识别失败，第 ${attempt} 次尝试，刷新验证码后重试。`);
