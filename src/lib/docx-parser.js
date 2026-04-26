@@ -103,6 +103,14 @@ function buildBlocks(contentHtml, images) {
   return blocks;
 }
 
+function sanitizePathSegment(name) {
+  return String(name || '')
+    .replace(/[\\/:*?"<>|]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80) || 'untitled';
+}
+
 async function resolveWordSource(docPath, config) {
   const extension = path.extname(docPath).toLowerCase();
   if (extension === '.docx') {
@@ -143,6 +151,10 @@ export async function parseWordDocument(docPath, config) {
   const { workingPath, cleanup } = await resolveWordSource(resolvedPath, config);
 
   try {
+    const articleFolderName = sanitizePathSegment(path.basename(resolvedPath, path.extname(resolvedPath)));
+    const articleImageDir = path.join(config.imageOutputDir, articleFolderName);
+    fs.mkdirSync(articleImageDir, { recursive: true });
+
     const images = [];
     const result = await mammoth.convertToHtml(
       { path: workingPath },
@@ -150,7 +162,7 @@ export async function parseWordDocument(docPath, config) {
         convertImage: mammoth.images.imgElement(async image => {
           const buffer = await image.read();
           const imageIndex = images.length;
-          const imagePath = path.join(config.imageOutputDir, `image-${imageIndex}.png`);
+          const imagePath = path.join(articleImageDir, `image-${imageIndex}.png`);
           await sharp(buffer).png().toFile(imagePath);
           images.push(imagePath);
           return { src: `###IMAGE_PLACEHOLDER_${imageIndex}###` };
@@ -167,6 +179,7 @@ export async function parseWordDocument(docPath, config) {
 
     return {
       sourcePath: resolvedPath,
+      imageDir: articleImageDir,
       title,
       contentHtml,
       manualHtml,

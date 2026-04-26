@@ -117,9 +117,12 @@ async function runPublishCommand(config, docPath, options) {
 
   try {
     const article = await parseWordDocument(resolvedDocPath, config);
-  console.log(`标题: ${article.title}`);
-  console.log(`正文块数: ${article.blocks.length}`);
-  console.log(`图片数量: ${article.images.length}`);
+    console.log(`标题: ${article.title}`);
+    console.log(`正文块数: ${article.blocks.length}`);
+    console.log(`图片数量: ${article.images.length}`);
+    if (article.imageDir) {
+      console.log(`稿件图片目录: ${article.imageDir}`);
+    }
 
     let workingArticle = article;
     if (config.deepseekEnabled && config.deepseekApiKey) {
@@ -153,7 +156,7 @@ async function runPublishCommand(config, docPath, options) {
     } else {
       await publishManualContent(session.page, workingArticle);
       if (workingArticle.images.length > 0) {
-        console.log(`图片已导出到: ${config.imageOutputDir}`);
+        console.log(`图片已导出到: ${workingArticle.imageDir || config.imageOutputDir}`);
         console.log('正文中已插入 [图片1] 这类占位符。完成手工插图后按回车继续。');
         await waitForEnter();
         console.log('封面建议从正文选择第一张图。完成后按回车继续保存。');
